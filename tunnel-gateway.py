@@ -142,8 +142,10 @@ class H(BaseHTTPRequestHandler):
                  "Sec-WebSocket-Accept: %s\r\n\r\n" % accept).encode("latin-1"))
         except (BrokenPipeError, ConnectionResetError):
             return
+        backend_head = b""
         try:
             backend = _socket.create_connection((UP_HOST, UP_PORT), timeout=15)
+            backend.settimeout(10)
             bkey = base64.b64encode(_os.urandom(16)).decode()
             backend.sendall(
                 ("GET %s HTTP/1.1\r\n"
@@ -154,20 +156,24 @@ class H(BaseHTTPRequestHandler):
                  "Sec-WebSocket-Version: 13\r\n\r\n"
                  % (target, UP_HOST, UP_PORT, bkey)).encode("latin-1"))
             head = b""
-            while b"\r\n\r\n" not in head:
-                chunk = backend.recv(4096)
-                if not chunk:
-                    raise ConnectionError("backend closed during handshake")
-                head += chunk
+            try:
+                while b"\r\n\r\n" not in head:
+                    chunk = backend.recv(4096)
+                    if not chunk:
+                        break
+                    head += chunk
+            except Exception:
+                pass
+            backend_head = head[:100]
             if b" 101 " not in head.split(b"\r\n", 1)[0]:
-                raise ConnectionError("backend refused: %s" % head[:60])
+                raise ConnectionError("backend refused: %s" % backend_head)
             note({"m": "WS-BRIDGE", "p": target, "r": "101 established"})
-        except Exception:
+        except Exception as e:
             try:
                 backend.close()
             except Exception:
                 pass
-            note({"m": "WS-BRIDGE", "p": target, "r": "backend failed"})
+            note({"m": "WS-BRIDGE", "p": target, "r": "backend failed: %s | saw: %s" % (e, backend_head)})
             return
         try:
             backend.setblocking(False)
