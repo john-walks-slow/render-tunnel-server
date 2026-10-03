@@ -133,6 +133,8 @@ class H(BaseHTTPRequestHandler):
                 if k.lower() not in ("host", "content-length", "connection",
                                      "accept-encoding"):
                     conn.putheader(k, v)
+            if body is not None:
+                conn.putheader("Content-Length", str(len(body)))
             conn.endheaders(body)
             resp = conn.getresponse()
             payload = resp.read()
