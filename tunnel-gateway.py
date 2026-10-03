@@ -147,14 +147,16 @@ class H(BaseHTTPRequestHandler):
             backend = _socket.create_connection((UP_HOST, UP_PORT), timeout=15)
             backend.settimeout(10)
             bkey = base64.b64encode(_os.urandom(16)).decode()
+            origin = self.headers.get("Origin", "http://%s:%d" % (UP_HOST, UP_PORT))
             backend.sendall(
                 ("GET %s HTTP/1.1\r\n"
                  "Host: %s:%d\r\n"
                  "Upgrade: websocket\r\n"
                  "Connection: Upgrade\r\n"
                  "Sec-WebSocket-Key: %s\r\n"
-                 "Sec-WebSocket-Version: 13\r\n\r\n"
-                 % (target, UP_HOST, UP_PORT, bkey)).encode("latin-1"))
+                 "Sec-WebSocket-Version: 13\r\n"
+                 "Origin: %s\r\n\r\n"
+                 % (target, UP_HOST, UP_PORT, bkey, origin)).encode("latin-1"))
             head = b""
             try:
                 while b"\r\n\r\n" not in head:
