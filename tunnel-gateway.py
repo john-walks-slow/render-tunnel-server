@@ -12,7 +12,7 @@ import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 UP_HOST = os.environ.get("UPSTREAM_HOST", "127.0.0.1")
 UP_PORT = int(os.environ.get("UPSTREAM_PORT", "18080"))
@@ -120,6 +120,9 @@ class H(BaseHTTPRequestHandler):
             conn.close()
 
     def _bridge_ws(self, target):
+        # Decode %XX: edges (Cloudflare) normalize reserved chars like '!'
+        # but backends (frps /~!frp) match the raw path.
+        target = unquote(target)
         import base64
         import hashlib
         import os as _os
