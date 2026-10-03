@@ -49,16 +49,17 @@ class H(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/debug" and self._debug_ok():
             return self._serve_debug()
+        note({"m": "GET", "p": path,
+              "up": self.headers.get("Upgrade", ""),
+              "conn": self.headers.get("Connection", ""),
+              "key": bool(self.headers.get("Sec-WebSocket-Key")),
+              "ua": self.headers.get("User-Agent", "")[:40]})
         if self.headers.get("Upgrade", "").lower() == "websocket":
-            note({"m": "GET", "p": path, "ws": True,
-                  "ua": self.headers.get("User-Agent", "")[:60]})
             return self._bridge_ws(path)
         if path in ("/health", "/healthz"):
             return self._send(200, {"ok": True})
         if path == "/info":
             return self._send(200, {"service": "tunnel-server", "via": "frps"})
-        note({"m": "GET", "p": path, "ws": False,
-              "ua": self.headers.get("User-Agent", "")[:60]})
         return self._proxy_http()
 
     def _debug_ok(self):
@@ -78,8 +79,13 @@ class H(BaseHTTPRequestHandler):
         return self._send(200, {"upstream": up, "recent": log})
 
     def do_POST(self):
+        path = urlparse(self.path).path
+        note({"m": "POST", "p": path,
+              "up": self.headers.get("Upgrade", ""),
+              "key": bool(self.headers.get("Sec-WebSocket-Key")),
+              "ua": self.headers.get("User-Agent", "")[:40]})
         if self.headers.get("Upgrade", "").lower() == "websocket":
-            return self._bridge_ws(urlparse(self.path).path)
+            return self._bridge_ws(path)
         return self._proxy_http()
 
     def do_PUT(self):
