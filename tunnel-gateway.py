@@ -83,6 +83,8 @@ class H(BaseHTTPRequestHandler):
         note({"m": "POST", "p": path,
               "up": self.headers.get("Upgrade", ""),
               "key": bool(self.headers.get("Sec-WebSocket-Key")),
+              "cl": self.headers.get("Content-Length", ""),
+              "te": self.headers.get("Transfer-Encoding", ""),
               "ua": self.headers.get("User-Agent", "")[:40]})
         if self.headers.get("Upgrade", "").lower() == "websocket":
             return self._bridge_ws(path)
@@ -94,9 +96,32 @@ class H(BaseHTTPRequestHandler):
     def do_DELETE(self):
         return self._proxy_http()
 
-    def _proxy_http(self):
+    def _read_body(self):
+        te = self.headers.get("Transfer-Encoding", "")
+        if "chunked" in te.lower():
+            chunks = []
+            while True:
+                line = self.rfile.readline().strip().split(b";")[0]
+                try:
+                    n = int(line, 16)
+                except ValueError:
+                    break
+                if n == 0:
+                    self.rfile.readline()
+                    break
+                chunks.append(self.rfile.read(n))
+                self.rfile.readline()
+            return b"".join(chunks)
         length = self.headers.get("Content-Length")
-        body = self.rfile.read(int(length)) if length else None
+        if length:
+            try:
+                return self.rfile.read(int(length))
+            except ValueError:
+                return None
+        return None
+
+    def _proxy_http(self):
+        body = self._read_body()
         # Preserve the original Host: frps routes tunneled HTTP by Host.
         host = self.headers.get("Host", "%s:%d" % (UP_HOST, UP_PORT))
         conn = http.client.HTTPConnection(UP_HOST, UP_PORT, timeout=120)
