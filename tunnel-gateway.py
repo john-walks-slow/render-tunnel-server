@@ -97,11 +97,18 @@ class H(BaseHTTPRequestHandler):
     def _proxy_http(self):
         length = self.headers.get("Content-Length")
         body = self.rfile.read(int(length)) if length else None
-        fwd = {k: v for k, v in self.headers.items()
-               if k.lower() not in ("host", "content-length", "connection")}
+        # Preserve the original Host: frps routes tunneled HTTP by Host.
+        host = self.headers.get("Host", "%s:%d" % (UP_HOST, UP_PORT))
         conn = http.client.HTTPConnection(UP_HOST, UP_PORT, timeout=120)
         try:
-            conn.request(self.command, self.path, body=body, headers=fwd)
+            conn.putrequest(self.command, self.path, skip_host=True,
+                            skip_accept_encoding=True)
+            conn.putheader("Host", host)
+            for k, v in self.headers.items():
+                if k.lower() not in ("host", "content-length", "connection",
+                                     "accept-encoding"):
+                    conn.putheader(k, v)
+            conn.endheaders(body)
             resp = conn.getresponse()
             payload = resp.read()
             self.send_response(resp.status, resp.reason)
