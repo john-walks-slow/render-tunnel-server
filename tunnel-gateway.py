@@ -9,11 +9,23 @@ import json
 import os
 import shutil
 import threading
+import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 UP_HOST = os.environ.get("UPSTREAM_HOST", "127.0.0.1")
 UP_PORT = int(os.environ.get("UPSTREAM_PORT", "18080"))
+DEBUG_TOKEN = os.environ.get("DEBUG_TOKEN", os.environ.get("FRP_TOKEN", ""))
+
+REQLOG = deque(maxlen=50)
+REQLOCK = threading.Lock()
+
+
+def note(entry):
+    entry["ts"] = time.strftime("%H:%M:%S")
+    with REQLOCK:
+        REQLOG.append(entry)
 
 
 class H(BaseHTTPRequestHandler):
@@ -35,13 +47,35 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/debug" and self._debug_ok():
+            return self._serve_debug()
         if self.headers.get("Upgrade", "").lower() == "websocket":
+            note({"m": "GET", "p": path, "ws": True,
+                  "ua": self.headers.get("User-Agent", "")[:60]})
             return self._bridge_ws(path)
         if path in ("/health", "/healthz"):
             return self._send(200, {"ok": True})
         if path == "/info":
             return self._send(200, {"service": "tunnel-server", "via": "frps"})
+        note({"m": "GET", "p": path, "ws": False,
+              "ua": self.headers.get("User-Agent", "")[:60]})
         return self._proxy_http()
+
+    def _debug_ok(self):
+        q = urlparse(self.path).query
+        return DEBUG_TOKEN and ("token=" + DEBUG_TOKEN) in q
+
+    def _serve_debug(self):
+        import socket as _s
+        try:
+            c = _s.create_connection((UP_HOST, UP_PORT), timeout=5)
+            c.close()
+            up = "open"
+        except Exception as e:
+            up = "closed: %s" % e
+        with REQLOCK:
+            log = list(REQLOG)
+        return self._send(200, {"upstream": up, "recent": log})
 
     def do_POST(self):
         if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -118,11 +152,13 @@ class H(BaseHTTPRequestHandler):
                 head += chunk
             if b" 101 " not in head.split(b"\r\n", 1)[0]:
                 raise ConnectionError("backend refused: %s" % head[:60])
+            note({"m": "WS-BRIDGE", "p": target, "r": "101 established"})
         except Exception:
             try:
                 backend.close()
             except Exception:
                 pass
+            note({"m": "WS-BRIDGE", "p": target, "r": "backend failed"})
             return
         try:
             backend.setblocking(False)
